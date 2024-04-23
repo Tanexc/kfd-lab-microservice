@@ -1,0 +1,126 @@
+version: "3"
+
+networks:
+  server-network:
+
+services:
+    postgresdb:
+      image: postgres:16.2
+      environment:
+        POSTGRES_PASSWORD: 7355608ay785l
+      ports:
+        - "5432:5432"
+      restart: unless-stopped
+      networks:
+        - server-network
+    eureka-server:
+      build: ./eureka-server
+      ports:
+        - 127.0.0.1:8761:8761
+      depends_on:
+        - postgresdb
+      networks:
+        - server-network
+    user-service:
+      hostname: userservice
+      build: ./user-service
+      depends_on:
+        - postgresdb
+      ports:
+        - 127.0.0.1:8002:8002
+      networks:
+        - server-network
+      environment:
+        - HOSTNAME=localhost
+    room-service:
+      hostname: roomservice
+      build: ./room-service
+      depends_on:
+        - postgresdb
+      ports:
+        - 127.0.0.1:8001:8001
+      networks:
+        - server-network
+    gateway:
+      build: ./gateway
+      ports:
+        - 127.0.0.1:8765:8765
+      depends_on:
+          - postgresdb
+      networks:
+        - server-network
+
+    loki:
+      image: grafana/loki:2.9.0
+      ports:
+        - "3100:3100"
+      command: -config.file=/etc/loki/local-config.yaml
+      networks:
+        - server-network
+
+    promtail:
+      image: grafana/promtail
+      volumes:
+        - /var/lib/docker/containers:/var/lib/docker/containers
+        - ./promtail/promtail.yml:/etc/promtail/promtail.yml
+      command: -config.file=/etc/promtail/promtail.yml
+      networks:
+        - server-network
+
+    grafana:
+      environment:
+        - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+        - GF_AUTH_ANONYMOUS_ENABLED=true
+        - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      volumes:
+        - ./grafana/provisioning/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+
+      image: grafana/grafana:latest
+      ports:
+        - "3000:3000"
+      networks:
+        - server-network
+
+    postgres-exporter:
+      image: prometheuscommunity/postgres-exporter
+      environment:
+        DATA_SOURCE_NAME: "postgresql://postgres:7355608ay785l@host.docker.internal:5432/postgres?sslmode=disable"
+      links:
+        - postgresdb
+        - prometheus
+      ports:
+        - "9187:9187"
+      depends_on:
+        - postgresdb
+      networks:
+        - server-network
+
+    prometheus:
+      image: prom/prometheus
+      command: ["--config.file=/etc/prometheus/prometheus.yaml"]
+      volumes:
+        - ./prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      ports:
+        - "9090:9090"
+      networks:
+        - server-network
+
+    keycloak:
+      image: bitnami/keycloak
+      container_name: keycloak
+      environment:
+        DB_VENDOR: POSTGRES
+        KEYCLOAK_DATABASE_PORT: 5432
+        KEYCLOAK_DATABASE_HOST: host.docker.internal
+        KEYCLOAK_DATABASE_NAME: postgres
+        KEYCLOAK_CREATE_ADMIN_USER: 'true'
+        KEYCLOAK_DATABASE_USER: postgres
+        KEYCLOAK_DATABASE_PASSWORD: 7355608ay785l
+        KEYCLOAK_ADMIN_USER: admin
+        KEYCLOAK_ADMIN_PASSWORD: password
+      ports:
+        - "8484:8080"
+      depends_on:
+        - postgresdb
+      links:
+        - "postgresdb:postgresdb"
